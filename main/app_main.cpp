@@ -204,7 +204,7 @@ extern "C" void app_main()
     // doesn't start until Wi-Fi associates (~12 s in), and by then other
     // subsystems (camera link's IRAM overhead, mbedtls sessions, BLE pools,
     // SSE monitor stack, …) have driven the largest contiguous internal-RAM
-    // block below the 8 KiB we need per segment, and the alloc fails. Doing it
+    // block below the size we need per segment, and the alloc fails. Doing it
     // here (right after Board::begin(), largest ≈ 29 KiB) is the only stable
     // window. Ownership lives here — conv-task only reads from these buffers
     // and never frees them. nullptr on failure → conv-task disables itself
@@ -363,7 +363,10 @@ extern "C" void app_main()
     {
         auto spk = M5.Speaker.config();
         spk.task_priority = 6;
-        spk.dma_buf_count = 16;
+        // Conversation already buffers 300 ms in PSRAM. Use M5Unified's
+        // default DMA depth here; 16 buffers needlessly doubles the scarce
+        // internal-RAM playback allocation alongside Wi-Fi and BLE.
+        spk.dma_buf_count = cfg.openai_enabled ? 8 : 16;
         // Pin to core 1. Default (tskNO_AFFINITY) lets the speaker task
         // land on core 0 where NimBLE + Wi-Fi live; at priority 6 it
         // out-prioritises NimBLE's host task and steals CPU during

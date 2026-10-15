@@ -18,7 +18,11 @@ namespace stackchan::app {
 // buffers in internal RAM during the boot-time low-fragmentation window
 // (see app_main.cpp for rationale). conversation_task.cpp uses these same
 // constants when reading from the ring.
-constexpr std::size_t kConversationSegmentSamples = 4096;  // ~512 ms per segment at 8 kHz
+// Three 2048-sample segments occupy 12 KiB instead of 24 KiB. At the XiaoZhi
+// speaker rate of 24 kHz, the two queued segments still cover about 170 ms;
+// the 300 ms jitter buffer remains upstream in PSRAM. The freed internal RAM
+// gives the speaker I2S driver room for its DMA descriptors at turn start.
+constexpr std::size_t kConversationSegmentSamples = 2048;
 constexpr std::size_t kConversationSegmentBuffers = 3;
 
 struct ConversationTaskArgs {
@@ -41,8 +45,8 @@ struct ConversationTaskArgs {
     // low-fragmentation window. We can't allocate this lazily from the
     // conversation task: by the time it runs (post Wi-Fi association, ~12 s
     // into boot), other subsystems (camera link, mbedtls sessions, BLE
-    // pools, …) have nibbled the internal-RAM pool down to <8 KiB largest
-    // contiguous block and a 3 × 8 KiB alloc fails. So app_main reserves
+    // pools, …) have nibbled the internal-RAM pool down to small fragments.
+    // So app_main reserves
     // the buffers right after Board::begin() (when largest ≈ 29 KiB) and
     // hands ownership in via this field. Any nullptr entry disables the
     // conversation task. Lifetime is app_main's — conv-task never frees.

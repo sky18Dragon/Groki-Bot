@@ -788,6 +788,10 @@ private:
             heap_caps_free(chunk);
             chunk = nullptr;
             flush_encoded_frames();
+            // When the queue stays non-empty, xQueueReceive never blocks.
+            // Give the core-1 idle task time alongside render/mic work so
+            // catch-up encoding cannot continuously starve the watchdog.
+            vTaskDelay(1);
         }
     }
 

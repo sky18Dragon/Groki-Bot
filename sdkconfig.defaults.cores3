@@ -7,6 +7,10 @@
 CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_SPEED_80M=y
 
+# CoreS3 supports 240 MHz. Opus encoding and avatar rendering share core 1;
+# use the rated CPU speed to leave headroom for realtime audio and idle.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
 # 16 MB external SPI flash (W25Q128 footprint on the CoreS3 PCB).
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
@@ -102,8 +106,10 @@ CONFIG_MODEL_IN_FLASH=y
 CONFIG_SR_WN_WN9L_JA_KONNICHIHAESP_TTS3=y
 CONFIG_SR_MN_CN_NONE=y
 CONFIG_SR_MN_EN_NONE=y
-# [ASR] DMA対応内部RAMの予約を増やす (mic I2S DMA + AFE + httpd 同居のため)
-CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536
+# Reserve internal RAM for I2S DMA while Wi-Fi, BLE, and the conversation
+# service are active. 64 KiB left the largest DMA block at 432 B during a
+# reply, so the speaker could not allocate a 512 B DMA audio buffer.
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=98304
 # [ASR] WiFi 静的 DMA バッファ削減 (mic I2S DMA の連続ブロック確保のため)。
 # ASR/設定用途では WiFi スループット低下は許容。conversation の音声ストリーム
 # 時のみ余裕が減るが、動作は維持。

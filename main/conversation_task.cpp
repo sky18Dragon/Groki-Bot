@@ -706,8 +706,12 @@ private:
                M5.Speaker.isPlaying(kSpeakerChannel) < kSegmentBuffers - 1) {
             const std::size_t n = std::min(kSegmentSamples, assistant_pcm_.size() - seg_pos_);
             std::memcpy(seg_buf_[seg_next_], assistant_pcm_.data() + seg_pos_, n * sizeof(std::int16_t));
-            M5.Speaker.playRaw(seg_buf_[seg_next_], n, speaker_sample_rate_, /*stereo=*/false,
-                               /*repeat=*/1, kSpeakerChannel, /*stop_current_sound=*/false);
+            if (!M5.Speaker.playRaw(seg_buf_[seg_next_], n, speaker_sample_rate_, /*stereo=*/false,
+                                    /*repeat=*/1, kSpeakerChannel, /*stop_current_sound=*/false)) {
+                ESP_LOGE(kTag, "speaker queue failed; audio was not played");
+                recover_after_error();
+                return;
+            }
             seg_pos_ += n;
             seg_next_ = (seg_next_ + 1) % kSegmentBuffers;
             // Account for every chunk whose tail is now queued. A single
@@ -750,14 +754,19 @@ private:
         if (M5.Mic.isRecording() < 2) {
             const auto& buf = mic_buf_[mic_read_];
             (void)client_->push_audio(std::span<const std::int16_t>{buf.data(), buf.size()});
-            M5.Mic.record(mic_buf_[mic_read_].data(), mic_buf_[mic_read_].size(), mic_sample_rate_, /*stereo=*/false);
+            if (!M5.Mic.record(mic_buf_[mic_read_].data(), mic_buf_[mic_read_].size(), mic_sample_rate_, /*stereo=*/false)) {
+                ESP_LOGE(kTag, "mic record failed; stopping stale audio uplink");
+                M5.Mic.end();
+                recover_after_error();
+                return;
+            }
             mic_read_ ^= 1;
         } else {
             vTaskDelay(pdMS_TO_TICKS(5));
         }
     }
 
-    void enter_listening()
+    bool enter_listening()
     {
         M5.Speaker.end();
         vTaskDelay(kI2sSettle);
@@ -777,10 +786,18 @@ private:
         // can't immediately re-trigger now that we're listening again.
         state_.barge_in_request.store(false, std::memory_order_relaxed);
         // Prime the 2-deep mic queue.
-        M5.Mic.record(mic_buf_[0].data(), mic_buf_[0].size(), mic_sample_rate_, /*stereo=*/false);
-        M5.Mic.record(mic_buf_[1].data(), mic_buf_[1].size(), mic_sample_rate_, /*stereo=*/false);
+        if (!M5.Mic.record(mic_buf_[0].data(), mic_buf_[0].size(), mic_sample_rate_, /*stereo=*/false) ||
+            !M5.Mic.record(mic_buf_[1].data(), mic_buf_[1].size(), mic_sample_rate_, /*stereo=*/false)) {
+            ESP_LOGE(kTag, "mic init failed: DMA free=%u largest=%u",
+                     static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
+                     static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)));
+            M5.Mic.end();
+            recover_after_error();
+            return false;
+        }
         mic_read_ = 0;
         set_local(Local::Listening);
+        return true;
     }
 
     // Switch the I2S bus to the speaker and begin streaming playback. Called
@@ -790,6 +807,19 @@ private:
     {
         M5.Mic.end();
         vTaskDelay(kI2sSettle);
+        // Initialise explicitly: otherwise a DMA allocation failure in the
+        // lazy playRaw path can silently discard the whole reply.
+        if (!M5.Speaker.begin()) {
+            ESP_LOGE(kTag, "speaker init failed: DMA free=%u largest=%u",
+                     static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
+                     static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)));
+            M5.Speaker.end();
+            recover_after_error();
+            return;
+        }
+        ESP_LOGI(kTag, "speaker ready: DMA free=%u largest=%u",
+                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_DMA)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)));
         seg_pos_ = 0;
         seg_next_ = 0;
         playback_start_ms_ = now_ms();
@@ -915,7 +945,7 @@ private:
             if (local_ == Local::Init && ev.state == conv::ConversationState::Listening) {
                 ESP_LOGI(kTag, "session ready");
                 state_.conv.active.store(true, std::memory_order_relaxed);
-                enter_listening();
+                if (!enter_listening()) break;
             }
             // Any time the backend reaches Listening (= setup accepted, session
             // alive) reset the consecutive-failure counter so a future
