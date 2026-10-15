@@ -365,6 +365,9 @@ reconnect the MCP client, after a change).
 | `STACKCHAN_FACE_TRACKER_CAMERA` | empty | Part of the camera name to use; empty uses the tracker's default order |
 | `STACKCHAN_HEAD_FOLLOW_DEFAULT` | on | `0` starts with head follow off; "look at me" turns it on |
 | `STACKCHAN_GEMINI_DEVICE_TOOLS` | off | `1` gives Gemini face/LED/head tools. Firmware with device MCP gets them as MCP calls; the Groki Bot firmware gets them as XiaoZhi emotion, `led` and `head` messages (`head` needs firmware newer than v0.2.1) |
+| `STACKCHAN_MANUAL_VAD` | on | Manual end-of-speech: Gemini waits for the robot's `listen stop`. The Groki Bot firmware never sends it, so set `0` there and let Gemini detect the end of speech |
+| `STACKCHAN_REPLY_LANGUAGE` | empty | Pin the reply language, for example `Chinese (Mandarin)`. Empty follows the language Gemini hears, which noisy audio can flip to an unrelated language |
+| `STACKCHAN_GEMINI_GOOGLE_SEARCH` | on | `0` leaves the Google Search tool out of the Gemini session |
 | `STACKCHAN_USB_TRANSPORT` | off | `1` enables the USB serial control channel; it locks `/dev/cu.usbmodem*` |
 | `STACKCHAN_ASK_CLAUDE` | on when the `claude` CLI is found | `0` removes the `ask_claude` voice tool even when the CLI is installed |
 | `STACKCHAN_CLAUDE_BIN` | `claude` on PATH | Claude CLI used by `ask_claude` |
@@ -378,6 +381,8 @@ reconnect the MCP client, after a change).
 | `STACKCHAN_ASK_TIMEOUT` | `110` | Seconds to wait for the agent's replies |
 | `STACKCHAN_GBOT_BIN` | `gbot` on PATH | Forwarding service: path to `gbot` |
 | `STACKCHAN_GBOT_HTTP_PORT` | `18770` | Forwarding service port (it always binds 127.0.0.1) |
+| `STACKCHAN_GBOT_SEND_TIMEOUT_S` | `20` | Forwarding service: seconds allowed for one `gbot` call. Raise it when `gbot` takes 10-40 s on your machine |
+| `STACKCHAN_GBOT_FIRST_TIMEOUT` | `30` | Forwarding service: seconds to wait for the agent's first reply |
 
 ## Safety
 
@@ -410,6 +415,11 @@ reconnect the MCP client, after a change).
 | Flashing fails with "port busy" | Stop the gateway if you enabled `STACKCHAN_USB_TRANSPORT`. |
 | `.env` change has no effect | Restart the gateway; with setup A, reconnect the MCP server (`/mcp` in Claude Code). |
 | The robot says the task could not be sent to the agent | Is `stackchan-gbot-proxy` running (`curl http://127.0.0.1:18770/health`)? Does `gbot bots list` work in a terminal and list the name in `STACKCHAN_TOOL_BOT`? Is the Grok Bot app signed in? |
+| The robot keeps dropping off and reconnecting (log `ESP32 disconnected ... rcvd=None sent=None`, firmware `transport_poll_write` errors) | A TUN-mode proxy (Clash and similar) on the computer may be taking the return traffic for the robot's subnet. Run `route -n get <robot IP>`: `interface: utun*` is wrong, it should be your LAN interface. Add a route for the robot's subnet (macOS: `sudo route -n add -net <subnet>/24 <router IP>`, lost at reboot) or make the proxy send `192.168.0.0/16` direct. |
+| The wake chime plays but the robot never answers | The firmware never sends `listen stop`, so with the default manual VAD Gemini never learns that you stopped talking. Set `STACKCHAN_MANUAL_VAD=0` and restart the gateway. |
+| The robot answers in the wrong language (for example Korean) | Noisy or very short audio can make Gemini guess a language. Set `STACKCHAN_REPLY_LANGUAGE`. |
+| The agent's reply comes late or the call times out | Time `gbot thread <agent> --json`. If it takes more than 10 s, raise `STACKCHAN_GBOT_SEND_TIMEOUT_S` and `STACKCHAN_GBOT_FIRST_TIMEOUT`; slow Grok Bot app connections (daemon log `~/.grokbot/local-exec-daemon.log` full of `ENOTFOUND`/`ECONNRESET`) are a network problem, not a gateway one. |
+| The robot connects but is silent | In the serial log look for `speaker ready` and `speaking` after `tts start`, and for `ALLOC_FAIL`. Then check the device volume (`curl http://<robot IP>/api/speaker-volume`) and the mute state on the robot's screen. |
 
 ## MCP tools
 
