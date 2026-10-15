@@ -97,6 +97,7 @@ def main(argv: list[str]) -> int:
                     time.sleep(leftover)
 
                 def append_reply(data: dict[str, Any]) -> None:
+                    data["last_target"] = args[1]
                     seq = int(data.get("seq") or 0) + 1
                     data["seq"] = seq
                     entries = list(data.get("entries") or [])

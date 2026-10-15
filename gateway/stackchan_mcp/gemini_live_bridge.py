@@ -71,6 +71,20 @@ LANGUAGE_INSTRUCTION = """## Language
 Always reply in the language the user is speaking (for example, Chinese when the user speaks Chinese). These instructions are written in English only for convenience. When a tool result or system notice gives you a sentence to say, say it in the user's language."""
 
 
+def language_instruction() -> str:
+    """Language rule; STACKCHAN_REPLY_LANGUAGE pins it so noisy audio cannot flip the reply language."""
+    language = os.getenv("STACKCHAN_REPLY_LANGUAGE", "").strip()
+    if not language:
+        return LANGUAGE_INSTRUCTION
+    return (
+        "## Language\n\n"
+        f"Always reply in {language}. Microphone audio is often noisy or very short, so never guess "
+        f"another language from it: if you cannot make out the words, say in {language} that you did "
+        f"not catch that and ask the user to repeat. Switch language only when the user clearly asks for it. "
+        f"When a tool result or system notice gives you a sentence to say, say it in {language}."
+    )
+
+
 def _env_flag(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None or not raw.strip():
@@ -235,7 +249,7 @@ def default_system_instruction(
         ask_claude = ask_claude_enabled()
     parts = [
         _load_personality(),
-        LANGUAGE_INSTRUCTION,
+        language_instruction(),
         EMOTION_SYSTEM_INSTRUCTION if device_tools else VOICE_ONLY_SYSTEM_INSTRUCTION,
         agent_tools_instruction(ask_claude=ask_claude),
     ]
@@ -825,15 +839,16 @@ def build_live_config(
             silence_duration_ms=vad_silence_ms,
         )
 
+    tools = [types.Tool(function_declarations=build_function_declarations())]
+    if os.getenv("STACKCHAN_GEMINI_GOOGLE_SEARCH", "1").lower() not in {"0", "false", "no"}:
+        tools.insert(0, types.Tool(google_search=types.GoogleSearch()))
+
     config = types.LiveConnectConfig(
         response_modalities=[live_modality],
         system_instruction=types.Content(
             parts=[types.Part(text=instruction)],
         ),
-        tools=[
-            types.Tool(google_search=types.GoogleSearch()),
-            types.Tool(function_declarations=build_function_declarations()),
-        ],
+        tools=tools,
         session_resumption=types.SessionResumptionConfig(
             handle=session_resumption_handle,
         ),

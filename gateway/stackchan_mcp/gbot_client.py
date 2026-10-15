@@ -60,6 +60,18 @@ def gbot_missing_error() -> str:
     return "gbot not found; install grok-bot-cli and put it on PATH, or set STACKCHAN_GBOT_BIN"
 
 
+def entry_key(entry: dict[str, Any]) -> str:
+    """Stable key of a transcript entry.
+
+    `id` ("t3s0") counts turns inside the returned window, so it is renumbered when the window
+    slides and a new reply can reuse an old id. `seq` is assigned by the thread and never changes.
+    """
+    seq = entry.get("seq")
+    if isinstance(seq, int):
+        return f"seq{seq}"
+    return str(entry.get("id") or "")
+
+
 def extract_bot_replies(thread: dict[str, Any]) -> list[tuple[str, str]]:
     """Extract the kind=send-message replies from gbot --json thread."""
     payload = thread.get("transcript") or thread.get("thread") or thread
@@ -70,7 +82,7 @@ def extract_bot_replies(thread: dict[str, Any]) -> list[tuple[str, str]]:
     for entry in entries:
         if not isinstance(entry, dict) or entry.get("kind") != "send-message":
             continue
-        eid = str(entry.get("id") or "")
+        eid = entry_key(entry)
         message = entry.get("message")
         text = ""
         if isinstance(message, dict):
@@ -93,7 +105,7 @@ class GrokBotClient:
         for attempt in range(SEND_RETRY_ATTEMPTS):
             try:
                 proc = subprocess.run(
-                    [self.gbot, "--json", *args],
+                    [self.gbot, *args, "--json"],
                     capture_output=True,
                     text=True,
                     timeout=self.timeout_s,

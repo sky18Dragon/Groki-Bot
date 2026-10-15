@@ -60,7 +60,9 @@ class ProxyServer:
                 "PYTHONPATH": str(GATEWAY_DIR),
             }
         )
-        env.pop("STACKCHAN_TOOL_BOT", None)
+        # Empty values (not removed) so the proxy's load_dotenv does not pull in a local .env.
+        env["STACKCHAN_TOOL_BOT"] = ""
+        env["STACKCHAN_TOOL_BOT_ID"] = ""
         if extra_env:
             env.update(extra_env)
         self.proc = subprocess.Popen(
@@ -163,6 +165,24 @@ class SendRejectsNonObjectJson(unittest.TestCase):
 
     def test_array_body_returns_400_json(self) -> None:
         self._assert_bad_json(b"[1]")
+
+
+class TargetSelection(unittest.TestCase):
+    def test_target_id_takes_priority_over_duplicate_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            server = ProxyServer(Path(tmp))
+            try:
+                server.wait_ready()
+                body = json.dumps(
+                    {"text": "ping", "target": "小张", "target_id": "bot-123"}
+                ).encode("utf-8")
+                code, payload = server.request("POST", "/send", body=body)
+                self.assertEqual(code, 200)
+                self.assertEqual(payload.get("ok"), True)
+                state = json.loads(server.state.read_text(encoding="utf-8"))
+                self.assertEqual(state.get("last_target"), "bot-123")
+            finally:
+                server.close()
 
 
 class StreamFailureSendsHttpStatus(unittest.TestCase):
@@ -417,3 +437,18 @@ class NoTargetBot(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_reply_keys_survive_sliding_window() -> None:
+    """Entry ids count turns inside the returned window, so a new reply can reuse an old id."""
+    from stackchan_mcp.gbot_http_proxy import extract_bot_replies_meta
+
+    before = {"transcript": {"entries": [
+        {"kind": "send-message", "id": "t1s0", "seq": 20, "message": {"content": "old"}, "timestampMs": 1},
+    ]}}
+    after = {"transcript": {"entries": [
+        {"kind": "send-message", "id": "t1s0", "seq": 22, "message": {"content": "new"}, "timestampMs": 2},
+    ]}}
+    old_keys = {key for key, _body, _ts in extract_bot_replies_meta(before)}
+    new_keys = {key for key, _body, _ts in extract_bot_replies_meta(after)}
+    assert old_keys.isdisjoint(new_keys)

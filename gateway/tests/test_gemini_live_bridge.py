@@ -363,6 +363,13 @@ def test_build_live_config_includes_google_search():
     assert cfg.tools[1].function_declarations
 
 
+def test_build_live_config_can_disable_google_search(monkeypatch):
+    monkeypatch.setenv("STACKCHAN_GEMINI_GOOGLE_SEARCH", "0")
+    cfg = build_live_config(system_instruction="你好")
+    assert len(cfg.tools) == 1
+    assert cfg.tools[0].function_declarations
+
+
 def test_build_live_config_enables_session_resumption():
     cfg = build_live_config(system_instruction="你好")
     assert cfg.session_resumption is not None
@@ -2691,3 +2698,15 @@ def test_spoken_notices_ask_for_the_users_language(monkeypatch):
     result, session = _run_ask_grokbot(monkeypatch, fake_iter, wait_for=1)
     assert "in their language" in result["instruction"]
     assert "in their language" in session.texts[0]
+
+
+def test_reply_language_can_be_pinned(monkeypatch):
+    from stackchan_mcp.gemini_live_bridge import LANGUAGE_INSTRUCTION, language_instruction
+
+    monkeypatch.delenv("STACKCHAN_REPLY_LANGUAGE", raising=False)
+    assert language_instruction() == LANGUAGE_INSTRUCTION
+
+    monkeypatch.setenv("STACKCHAN_REPLY_LANGUAGE", "Taiwanese Mandarin")
+    pinned = language_instruction()
+    assert "Always reply in Taiwanese Mandarin" in pinned
+    assert "never guess" in pinned

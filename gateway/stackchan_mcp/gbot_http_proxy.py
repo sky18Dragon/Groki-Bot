@@ -44,6 +44,7 @@ except ImportError:  # pragma: no cover - python-dotenv is a core dependency
 
 from .gbot_client import (
     GrokBotClient,
+    entry_key,
     extract_bot_replies,
     gbot_missing_error,
     resolve_gbot_bin,
@@ -56,7 +57,12 @@ HOST = "127.0.0.1"
 PORT = int(os.getenv("STACKCHAN_GBOT_HTTP_PORT", "18770"))
 # Bot used when a request names no target. The gateway always sends one
 # (STACKCHAN_TOOL_BOT), so this is only a fallback for manual curl tests.
-DEFAULT_BOT = (os.getenv("STACKCHAN_ASK_BOT") or os.getenv("STACKCHAN_TOOL_BOT") or "").strip()
+DEFAULT_BOT = (
+    os.getenv("STACKCHAN_TOOL_BOT_ID")
+    or os.getenv("STACKCHAN_ASK_BOT")
+    or os.getenv("STACKCHAN_TOOL_BOT")
+    or ""
+).strip()
 POLL_S = float(os.getenv("STACKCHAN_GBOT_POLL_S", "0.10"))
 STABLE_S = float(os.getenv("STACKCHAN_GBOT_STABLE_S", "0.35"))
 FOLLOW_HARD_S = float(os.getenv("STACKCHAN_GBOT_FOLLOW_S", "110"))
@@ -130,7 +136,7 @@ def extract_bot_replies_meta(thread: dict) -> list[tuple[str, str, int]]:
     for entry in entries:
         if not isinstance(entry, dict) or entry.get("kind") != "send-message":
             continue
-        eid = str(entry.get("id") or "")
+        eid = entry_key(entry)
         message = entry.get("message")
         text = ""
         if isinstance(message, dict):
@@ -153,7 +159,7 @@ def _run_gbot_send(text: str, dest: str) -> tuple[bool, str]:
         return False, gbot_missing_error()
     try:
         proc = subprocess.run(
-            [bin_path, "--json", "send", dest, text],
+            [bin_path, "send", dest, text, "--json"],
             capture_output=True,
             text=True,
             timeout=SEND_TIMEOUT_S,
@@ -266,7 +272,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         text = str(data.get("text") or "").strip()
         bot = str(
-            data.get("target") or data.get("bot") or data.get("target_id") or DEFAULT_BOT
+            data.get("target_id") or data.get("target") or data.get("bot") or DEFAULT_BOT
         ).strip() or DEFAULT_BOT
         if not text:
             self._json(400, {"ok": False, "error": "empty text"})

@@ -581,8 +581,15 @@ class ESP32Manager:
                             continue
                     logger.debug("ESP32 message type=%s (ignored)", msg_type)
 
-        except websockets.exceptions.ConnectionClosed:
-            logger.info("ESP32 disconnected: device=%s", device_id)
+        except websockets.exceptions.ConnectionClosed as exc:
+            # rcvd/sent tell who closed: (None, 1011 keepalive ping timeout) is the gateway
+            # giving up on the device; (None, None) is a dropped TCP connection.
+            logger.info(
+                "ESP32 disconnected: device=%s rcvd=%s sent=%s",
+                device_id,
+                getattr(exc, "rcvd", None),
+                getattr(exc, "sent", None),
+            )
         finally:
             if cloud_proxy is not None:
                 await cloud_proxy.stop()
