@@ -376,7 +376,7 @@ def test_build_live_config_enables_session_resumption():
     assert cfg.session_resumption.handle is None
 
 
-def test_build_live_config_enables_context_compression_and_manual_vad(monkeypatch):
+def test_build_live_config_enables_context_compression_and_automatic_vad(monkeypatch):
     monkeypatch.delenv("STACKCHAN_CTX_TRIGGER_TOKENS", raising=False)
     monkeypatch.delenv("STACKCHAN_CTX_TARGET_TOKENS", raising=False)
     monkeypatch.delenv("STACKCHAN_VAD_SILENCE_MS", raising=False)
@@ -386,8 +386,17 @@ def test_build_live_config_enables_context_compression_and_manual_vad(monkeypatc
 
     assert cfg.context_window_compression.trigger_tokens == 25_000
     assert cfg.context_window_compression.sliding_window.target_tokens == 8_000
+    # The Groki Bot firmware never sends `listen stop`, so manual VAD is opt-in.
     vad = cfg.realtime_input_config.automatic_activity_detection
-    assert vad.disabled is True
+    assert not vad.disabled
+
+
+def test_build_live_config_manual_vad_is_opt_in(monkeypatch):
+    monkeypatch.setenv("STACKCHAN_MANUAL_VAD", "1")
+
+    cfg = build_live_config(system_instruction="你好")
+
+    assert cfg.realtime_input_config.automatic_activity_detection.disabled is True
 
 
 def test_build_live_config_uses_context_and_automatic_vad_env(monkeypatch):

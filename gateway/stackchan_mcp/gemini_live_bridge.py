@@ -296,7 +296,7 @@ DEFAULT_VAD_SILENCE_MS = 650
 # While DORMANT the server may stay silent for a long time, but it is known to close with 1008
 # after about 270 s (the close is itself a message). No server message for over 300 s means a half-open connection: reconnect.
 DEFAULT_RECEIVE_STALL_S = 300.0
-DEFAULT_MANUAL_VAD = True
+DEFAULT_MANUAL_VAD = False
 DEFAULT_RECONNECT_AUDIO_TTL_S = 5.0
 DEFAULT_RECONNECT_AUDIO_MAX_BYTES = 16_000 * 2 * 3
 

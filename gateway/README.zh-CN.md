@@ -256,7 +256,7 @@ curl -s -X POST http://127.0.0.1:18770/send \
 | `STACKCHAN_FACE_TRACKER_CAMERA` | 空 | 要用的摄像头名字里的一段；留空按追踪程序的默认顺序选 |
 | `STACKCHAN_HEAD_FOLLOW_DEFAULT` | 开 | 设为 `0` 时网关启动后不转头跟随，说「看着我」再打开 |
 | `STACKCHAN_GEMINI_DEVICE_TOOLS` | 关 | 设为 `1` 让 Gemini 使用表情、灯光、头部工具。带设备端 MCP 的固件通过 MCP 调用收到；Groki Bot 固件通过 XiaoZhi 的表情、`led`、`head` 消息收到（`head` 需要 v0.2.1 之后的固件） |
-| `STACKCHAN_MANUAL_VAD` | 开 | 手动判断说话结束：Gemini 等机器人发 `listen stop`。Groki Bot 固件从不发送它，所以用这个固件时设为 `0`，让 Gemini 自己判断说完 |
+| `STACKCHAN_MANUAL_VAD` | 关 | 设为 `1` 时，Gemini 要等机器人发 `listen stop` 才回答。Groki Bot 固件从不发送它，所以用这个固件时保持关闭，由 Gemini 自己判断说完 |
 | `STACKCHAN_REPLY_LANGUAGE` | 空 | 固定回复语言，例如 `Chinese (Mandarin)`。留空时跟随 Gemini 听到的语言，嘈杂音频可能让它回成不相干的语言 |
 | `STACKCHAN_GEMINI_GOOGLE_SEARCH` | 开 | 设为 `0` 时，Gemini 会话里不带 Google 搜索工具 |
 | `STACKCHAN_USB_TRANSPORT` | 关 | 设为 `1` 启用 USB 串口控制通道；它会独占 `/dev/cu.usbmodem*` |
@@ -296,8 +296,9 @@ curl -s -X POST http://127.0.0.1:18770/send \
 | 刷固件提示串口被占用 | 如果开了 `STACKCHAN_USB_TRANSPORT`，先停掉网关。 |
 | 改了 `.env` 不生效 | 重启网关；用方式 A 时在 Claude Code 里用 `/mcp` 重新连接。 |
 | 机器人说任务没送到 | `stackchan-gbot-proxy` 在运行吗（`curl http://127.0.0.1:18770/health`）？终端里 `gbot bots list` 能用、并且列出了 `STACKCHAN_TOOL_BOT` 里的名字吗？Grok Bot 应用登录了吗？ |
-| 机器人总是掉线重连（日志 `ESP32 disconnected ... rcvd=None sent=None`，固件报 `transport_poll_write`） | 电脑上 TUN 模式的代理（Clash 等）可能接走了去机器人所在网段的回程流量。运行 `route -n get <机器人 IP>`：`interface: utun*` 不对，应该是你的局域网网卡。给机器人所在网段加一条路由（macOS：`sudo route -n add -net <网段>/24 <路由器 IP>`，重启后失效），或让代理对 `192.168.0.0/16` 直连。 |
-| 唤醒提示音响了但机器人不回答 | 固件从不发送 `listen stop`，默认的手动 VAD 下 Gemini 不知道你说完了。设置 `STACKCHAN_MANUAL_VAD=0` 并重启网关。 |
+| 机器人总是掉线重连（日志 `ESP32 disconnected ... rcvd=None sent=None`，固件报 `transport_poll_write`） | 电脑上 TUN 模式的代理（Clash 等）可能接走了去机器人所在网段的回程流量。运行 `route -n get <机器人 IP>`：`interface: utun*` 不对，应该是你的局域网网卡。给机器人所在网段加一条路由（macOS：`sudo route -n add -net <网段>/24 <路由器 IP>`，重启后失效；`sudo scripts/install_lan_route_macos.sh install <网段>/24 <路由器 IP>` 可以让它在重启后保留），或让代理对 `192.168.0.0/16` 直连。 |
+| 路由没问题，连接还是每隔几秒断 | 在机器人启动时的串口日志里找 `rssi:`。大约 -75 dBm 或更低就是弱信号，而且 ESP32-S3 只用 2.4 GHz。把机器人移近路由器，或把路由器的 2.4 GHz 信道改到 1、6、11，不要用 12 到 13。 |
+| 唤醒提示音响了但机器人不回答 | `.env` 里是不是设了 `STACKCHAN_MANUAL_VAD=1`？Groki Bot 固件从不发送 `listen stop`，手动 VAD 下 Gemini 不知道你说完了。删掉它（或设为 `0`）并重启网关。 |
 | 机器人用错误的语言回答（例如韩语） | 嘈杂或很短的音频会让 Gemini 乱猜语言。设置 `STACKCHAN_REPLY_LANGUAGE`。 |
 | 智能体回复很慢或调用超时 | 给 `gbot thread <智能体> --json` 计时。超过 10 秒就调大 `STACKCHAN_GBOT_SEND_TIMEOUT_S` 和 `STACKCHAN_GBOT_FIRST_TIMEOUT`；Grok Bot 应用连接慢（守护进程日志 `~/.grokbot/local-exec-daemon.log` 里全是 `ENOTFOUND`/`ECONNRESET`）属于网络问题，不是网关的问题。 |
 | 机器人连上了但没有声音 | 看串口日志：`tts start` 之后有没有 `speaker ready` 和 `speaking`，有没有 `ALLOC_FAIL`。再查设备音量（`curl http://<机器人 IP>/api/speaker-volume`）和机器人屏幕上的静音状态。 |

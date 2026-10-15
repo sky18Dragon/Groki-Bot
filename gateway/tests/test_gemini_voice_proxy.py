@@ -1795,6 +1795,7 @@ async def test_fallback_pass_through_opens_manual_vad_before_audio(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_wake_sends_manual_vad_activity_start(monkeypatch, info):
+    monkeypatch.setenv("STACKCHAN_MANUAL_VAD", "1")
     proxy, _, sent = _make_proxy(monkeypatch=monkeypatch)
     gate = WakeGate(
         kws=ScriptedKeywordSpotter([True]),
@@ -1814,6 +1815,7 @@ async def test_wake_sends_manual_vad_activity_start(monkeypatch, info):
 
 @pytest.mark.asyncio
 async def test_gate_close_skips_led_off_while_tts_active(monkeypatch, info):
+    monkeypatch.setenv("STACKCHAN_MANUAL_VAD", "1")
     from stackchan_mcp.debug_status import DebugStatus
 
     st = DebugStatus()

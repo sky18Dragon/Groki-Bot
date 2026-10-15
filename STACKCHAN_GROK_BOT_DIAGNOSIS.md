@@ -17,7 +17,7 @@
 
 - 唤醒词“Hi 小张”偶尔漏检（一次连说 3 遍只命中 1 遍），还没有调优。
 - Grok Bot 应用到后端的连接不稳定，`gbot` 单次调用要 10 到 40 秒，所以智能体回复偏慢。
-- 给设备所在网段加的路由重启后失效，见下文。
+- Wi-Fi 链路偏弱：机器人启动日志里 `rssi: -74`，信道 13，2.4 GHz。2026-10-15 19:35 之后连接又变回约每 10 秒断一次（路由仍是正确的），在改善信号之前，唤醒词也没法可靠调优。把机器人移近路由器，或把路由器 2.4 GHz 信道改到 1、6、11。
 
 ## 逐个问题的根因与修复
 
@@ -26,8 +26,8 @@
 | 喇叭无声，串口 `ALLOC_FAIL size=512` | 内部 RAM 里能做 DMA 的连续空间只有几百字节，喇叭初始化分配失败 | 固件：预留 96 KiB 内部 RAM、播放缓存各由 8 KiB 减到 4 KiB、XiaoZhi 模式喇叭 DMA 缓冲从 16 降到 8、CPU 240 MHz、发送音频时让出 CPU。提交 `74bc7ad`。播放时串口可见 `speaker ready`、`speaking (streaming)`，无 `ALLOC_FAIL` |
 | 小张回复了，但转发服务报超时 | 回复条目的 `id`（如 `t1s0`）只是返回窗口内的轮次编号，窗口滑动后新回复会复用旧 id，被当作已读而丢弃 | 用稳定的 `seq` 去重（`gbot_client.entry_key`），并加回归测试。提交 `4e47d43` |
 | `gbot` 调用超时 | 本机 `gbot` 每次 10 到 40 秒（Grok Bot 守护进程日志里有 ENOTFOUND/ECONNRESET/ETIMEDOUT） | `gateway/.env` 里加 `STACKCHAN_GBOT_SEND_TIMEOUT_S=75`、`STACKCHAN_GBOT_FIRST_TIMEOUT=90`。网络本身需另行排查 |
-| 设备 WebSocket 每隔十几秒断开 | 电脑上 Clash 的 TUN（`utun4`）接走了去设备网段 `192.168.19.0/24` 的回程包，TCP 无关闭帧地断开（网关日志 `rcvd=None sent=None`，固件 `transport_poll_write`） | `sudo route -n add -net 192.168.19.0/24 192.168.8.1`，之后连接稳定超过 4 分钟。该路由重启失效；长期做法是在 Clash 里让 `192.168.0.0/16` 直连。网关事件循环和接收队列经检查正常 |
-| 唤醒后机器人不回答 | 网关默认手动 VAD，等设备发 `listen stop` 才提交一句话；固件在 mode=auto 下从不发送它 | `gateway/.env` 设 `STACKCHAN_MANUAL_VAD=0`，由 Gemini 自己判断说完 |
+| 设备 WebSocket 每隔十几秒断开 | 电脑上 Clash 的 TUN（`utun4`）接走了去设备网段 `192.168.19.0/24` 的回程包，TCP 无关闭帧地断开（网关日志 `rcvd=None sent=None`，固件 `transport_poll_write`） | `sudo route -n add -net 192.168.19.0/24 192.168.8.1`，之后连接稳定超过 4 分钟。该路由重启失效：用 `sudo gateway/scripts/install_lan_route_macos.sh install 192.168.19.0/24 192.168.8.1` 装成开机项，或在 Clash 里让 `192.168.0.0/16` 直连。网关事件循环和接收队列经检查正常 |
+| 唤醒后机器人不回答 | 网关默认手动 VAD，等设备发 `listen stop` 才提交一句话；固件在 mode=auto 下从不发送它 | 网关默认改为自动 VAD（`STACKCHAN_MANUAL_VAD` 默认关闭），由 Gemini 自己判断说完 |
 | 机器人用韩语回答 | 自动断句后，噪声片段也会触发回复，指令只写“用用户的语言”，Gemini 误判语言 | 新增 `STACKCHAN_REPLY_LANGUAGE`，本机设为台湾国语。Gemini 语音不支持闽南语 |
 | 网关一启动就退出 | stdio MCP 服务读到标准输入 EOF 就结束 | 启动时保持标准输入打开，例如 `tail -f /dev/null \| uv run python -m stackchan_mcp`，或用 `gateway/scripts/run_stackchan_gateway_launchd.sh` |
 | 机器人“没有声音” | 一次是喇叭被误关（静音） | 先查设备音量 `curl http://<机器人 IP>/api/speaker-volume` 和屏幕上的静音状态 |
