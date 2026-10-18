@@ -5,19 +5,20 @@
 
 ## 当前状态
 
-语音链路已经打通：对机器人说“Hi 小张”，听到唤醒提示音，说出请求，Gemini 把任务交给 Grok Bot 智能体“小张”，小张的回复由机器人用台湾国语念出来。
+语音链路已经打通，有两条可选的后端（`gateway/.env` 里的 `STACKCHAN_VOICE_BACKEND`）：
+
+- **`gbot`（当前使用）**：用本机 Grok Bot 桌面应用的登录做语音，不需要 Gemini 密钥。2026-10-19 真人实测：说“Hi 小张，让小张回复收到两个字”，机器人回答，`send_task` 被受理（`native_accepted`），小张回复后机器人播报“小张回了：收到”。
+- **`gemini`**：Gemini Live 加 `ask_grokbot` 经本地转发服务交给小张，2026-10-15 实测通过。2026-10-19 起 Gemini 返回 `1011 You exceeded your current quota`（账号额度用完），暂时不可用。
 
 ```
-机器人 ──ws://<电脑 IP>:8765──▶ 网关 ──▶ Gemini Live
-                                  │
-                                  └─ ask_grokbot ─▶ 转发服务 127.0.0.1:18770 ─▶ gbot ─▶ 小张
+机器人 ──ws://<电脑 IP>:8765──▶ 网关 ──▶ 127.0.0.1:18771 登录辅助程序 ──▶ Grok 语音 ──▶ send_task ──▶ 小张
 ```
 
 仍待处理：
 
-- 唤醒词“Hi 小张”偶尔漏检（一次连说 3 遍只命中 1 遍），还没有调优。
-- Grok Bot 应用到后端的连接不稳定，`gbot` 单次调用要 10 到 40 秒，所以智能体回复偏慢。
-- Wi-Fi 链路偏弱：机器人启动日志里 `rssi: -74`，信道 13，2.4 GHz。2026-10-15 19:35 之后连接又变回约每 10 秒断一次（路由仍是正确的），在改善信号之前，唤醒词也没法可靠调优。把机器人移近路由器，或把路由器 2.4 GHz 信道改到 1、6、11。
+- 唤醒词“Hi 小张”在连接不稳时会漏检，网络稳定后第一次就命中，没有再单独调优。
+- 机器人 Wi-Fi 信号偏弱（启动日志 `rssi: -74` 到 `-76`），放得远了仍可能掉线。
+- 电脑换网络后 IP 会变，要在机器人里重新设置网关地址（见下文）。
 
 ## 逐个问题的根因与修复
 
@@ -29,6 +30,9 @@
 | 设备 WebSocket 每隔十几秒断开 | 电脑上 Clash 的 TUN（`utun4`）接走了去设备网段 `192.168.19.0/24` 的回程包，TCP 无关闭帧地断开（网关日志 `rcvd=None sent=None`，固件 `transport_poll_write`） | `sudo route -n add -net 192.168.19.0/24 192.168.8.1`，之后连接稳定超过 4 分钟。该路由重启失效：用 `sudo gateway/scripts/install_lan_route_macos.sh install 192.168.19.0/24 192.168.8.1` 装成开机项，或在 Clash 里让 `192.168.0.0/16` 直连。网关事件循环和接收队列经检查正常 |
 | 唤醒后机器人不回答 | 网关默认手动 VAD，等设备发 `listen stop` 才提交一句话；固件在 mode=auto 下从不发送它 | `gateway/.env` 设 `STACKCHAN_MANUAL_VAD=0`，由 Gemini 自己判断说完。上游默认值仍是手动 VAD，所以每个环境都要设 |
 | 机器人用韩语回答 | 自动断句后，噪声片段也会触发回复，指令只写“用用户的语言”，Gemini 误判语言 | 在本机 `gateway/personality.md` 里写一句“Always reply in Taiwanese Mandarin”之类的固定语言指令。Gemini 语音不支持闽南语 |
+| Gemini 报 `1011 You exceeded your current quota`，会话连不上 | Gemini 账号额度用完，不是代码问题 | 到 Google AI Studio 查额度或换密钥；或切到 `gbot` 后端，不需要 Gemini 密钥 |
+| 换了 Wi-Fi 后机器人屏幕显示连接错误 | 机器人里存的网关地址是旧电脑 IP；之后又被设置页“保存并重启”把旧地址写回去 | 见“电脑换了网络”一节 |
+| 机器人连不上新 Wi-Fi，串口里反复 `run -> init` | 关联后握手超时，通常是 Wi-Fi 密码不对 | 用 BLE 设置页重新输入 Wi-Fi 名称和密码 |
 | 网关一启动就退出 | stdio MCP 服务读到标准输入 EOF 就结束 | 启动时保持标准输入打开，例如 `tail -f /dev/null \| uv run python -m stackchan_mcp`，或用 `gateway/scripts/run_stackchan_gateway_launchd.sh` |
 | 机器人“没有声音” | 一次是喇叭被误关（静音） | 先查设备音量 `curl http://<机器人 IP>/api/speaker-volume` 和屏幕上的静音状态 |
 
@@ -50,7 +54,32 @@ curl -s http://127.0.0.1:8766/debug/status           # device.connected、wake_g
 curl -s http://127.0.0.1:18770/health                # 转发服务
 ```
 
-不用开口也能测完整链路（需要 `STACKCHAN_TOKEN`）：
+### 使用 Grok 登录语音（`gbot` 后端）
+
+`gateway/.env` 需要 `STACKCHAN_VOICE_BACKEND=gbot`、`STACKCHAN_GBOT_VOICE_BOT_ID`、`STACKCHAN_TOOL_BOT`、`STACKCHAN_TOOL_BOT_ID`（两个 ID 填同一个智能体 ID）。另开一个终端，保持运行登录辅助程序（它不会读取 `.env`，值要像下面这样传）：
+
+```sh
+cd gateway
+STACKCHAN_GBOT_VOICE_BOT_ID=<智能体 ID> STACKCHAN_TOOL_BOT=<智能体名> STACKCHAN_TOOL_BOT_ID=<智能体 ID> \
+  node scripts/gbot_voice_session_bridge.mjs     # 监听 127.0.0.1:18771
+```
+
+要点：该程序会读取本机 Grok Bot 应用的登录信息和钥匙串（首次可能弹出钥匙串授权），凭据只放在内存里。上游只在 Grok Bot 0.71.2 上测过，应用更新可能让它失效。
+
+只有真人说话才能让 `send_task` 把任务派给智能体；网关的文本注入（`/debug/inject-text`）只能测普通问答，派任务会得到 `outcome=new_user_required`。
+
+### 电脑换了网络
+
+电脑 IP 变了以后，机器人里存的网关地址就失效，屏幕显示连接错误。找到机器人 IP（`arp -an | grep -i 7c:4f:ad:af:8d:fc`，或 USB 接上读串口里的 `sta ip`），然后：
+
+```sh
+curl -X POST http://<机器人 IP>/api/xiaozhi-url -d 'ws://<电脑新 IP>:8765'
+curl -X POST http://<机器人 IP>/api/apply
+```
+
+不要在 BLE 设置页里“保存并重启”旧配置：页面会把旧的网关地址一起写回去。机器人连不上 Wi-Fi（串口里反复 `run -> init`，没有 `connected with`）多半是密码不对，用设置页重新输入。
+
+不用开口也能测普通问答（需要 `STACKCHAN_TOKEN`，`gemini` 后端也可用它测派任务）：
 
 ```sh
 curl -s -X POST http://127.0.0.1:8766/debug/inject-text \
