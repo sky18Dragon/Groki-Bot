@@ -1,34 +1,99 @@
-[English](README.md) · 中文 · [日本語](README.ja.md)
+[English](README.md) | 中文 | [日本語](README.ja.md)
 
 # Groki Bot
 
-Groki Bot 桌面机器人（M5Stack CoreS3 加 Stack-chan 底座）的全部内容都在这一个仓库里：机器人**固件**、运行在电脑上的**网关**，以及让机器人把任务交给 **Grok Bot** 应用里智能体的联动机制。
+Groki Bot 桌面机器人（M5Stack CoreS3 加 Stack-chan 底座）的全部内容都在这一个仓库里：机器人**固件**、运行在电脑上的**网关**，以及让机器人把任务交给 **Grok Bot** 应用里智能体的联动机制。 Groki 现已支持 Grok bot 后端原生语音，连接桌面端应用即可直接和机器人对话。在已登录 Grok Bot 的 Mac 上，语音直接走现有登录状态：无需额外配置 xAI 语音 API 密钥，也无需重刷固件。
 
 ![Groki Bot 像素风头图：CRT 复古电脑造型的桌面机器人，屏幕上是白色圆脸](docs/images/banner.png)
 <!-- demo-video
      演示视频后补。发布后把嵌入代码（iframe 或 video）放在本注释块下方。
 -->
 
-## 三种用法
+## 快速开始：用 Grok Bot 对话（仅 macOS）
+
+需要：一台 Groki Bot（CoreS3 加 Stack-chan 底座）、USB-C 线、桌面版 Chrome 或 Edge、同一 Wi-Fi 下已登录 Grok Bot 应用的 Mac（测试版本 0.71.2，用的是内部接口，应用升级后可能失效）、Node.js 和 [uv](https://docs.astral.sh/uv/)。
+
+1. 刷固件并配好 Wi-Fi：照[用法 1](#用法-1只刷固件)的第 1、2 步做，API 密钥可以不填。
+2. 在 Mac 上装网关：`git clone` 本仓库，`cd groki-bot/gateway`，`uv sync --all-extras`，`cp .env.example .env`。
+3. 按[配置 Grok Bot 原生语音](#配置-grok-bot-原生语音)一节，在 `gateway/.env` 中设置四项配置。
+4. 另开一个终端，按[配置 Grok Bot 原生语音](#配置-grok-bot-原生语音)一节的完整命令启动登录桥，并保持运行。
+5. 按[用法 2](#用法-2固件加网关)启动网关，在蓝牙设置页把机器人指向 `ws://<电脑局域网 IP>:8765`，然后说"Hi Grok"。
+
+默认后端仍是 Gemini，把 `STACKCHAN_VOICE_BACKEND` 设回 `gemini` 即可切回。其他语音方式（OpenAI Realtime、Gemini Live、用 `gbot` 命令行转交任务）在下面的[其他语音后端](#其他语音后端)一节。
+
+### 配置 Grok Bot 原生语音
+
+代码默认的语音后端仍是 Gemini，不会自动用 Grok，要用 Grok Bot 原生语音，需要你自己在 `gateway/.env` 里切换。
+
+原生语音只支持 macOS，走 Grok Bot 桌面应用的内部接口，测试版本是 0.71.2，应用升级后可能失效；失效或不想用时，把 `STACKCHAN_VOICE_BACKEND` 改成 `gemini` 并重启网关，不用重刷固件，前提是 Gemini 密钥还在。
+
+在 `gateway/.env` 中加入下面四行，把示例名字和 ID 换成你自己的：
+
+```dotenv
+STACKCHAN_VOICE_BACKEND=gbot
+STACKCHAN_GBOT_VOICE_BOT_ID=YOUR_AGENT_ID
+STACKCHAN_TOOL_BOT=助手
+STACKCHAN_TOOL_BOT_ID=YOUR_AGENT_ID
+```
+
+- `STACKCHAN_VOICE_BACKEND=gbot` 选择 Grok 语音后端。
+- `STACKCHAN_GBOT_VOICE_BOT_ID` 是语音会话使用的 agent ID。
+- `STACKCHAN_TOOL_BOT` 是你给这个 agent 起的名字，代码只检查它非空，不会去应用里按名字查找。
+- `STACKCHAN_TOOL_BOT_ID` 是桌面任务使用的 agent ID，必须与语音使用的 ID 逐字符一致，不会自动归一化大小写和空白。
+
+名字是你自己的 agent 的名字，ID 是同一个 agent 的 ID。装有可选的 `gbot` 命令行时，可以这样查找：
+
+```sh
+gbot bots list
+gbot bots list --json
+gbot bots get "<名字或 ID>"
+```
+
+这些命令读取本机的 Grok Bot agent 目录。找不到目录时会报错，并提示用 `--dir` 或环境变量 `GROK_BOT_AGENTS_DIR` 指定目录（2026-10-18 在 gbot 0.11.3 上实测）。`--json` 输出 JSON，帮助里没有写输出列名或字段。拿不到 ID 时，先别继续，去 Grok Bot 应用或你的 agent 配置里确认 ID。拿到 ID 后，运行原生语音本身不需要这个命令行工具。
+
+在同一台 Mac 上登录 Grok Bot 桌面应用。另开一个终端，在 `gateway/` 下运行完整命令，传入相同名字和 ID，并保持这个终端不关：
+
+```sh
+STACKCHAN_GBOT_VOICE_BOT_ID=YOUR_AGENT_ID \
+STACKCHAN_TOOL_BOT=助手 \
+STACKCHAN_TOOL_BOT_ID=YOUR_AGENT_ID \
+node scripts/gbot_voice_session_bridge.mjs
+```
+
+登录桥不读 `.env`，需要显式传入这三个环境变量，只监听 `127.0.0.1:18771`。
+
+可选：`STACKCHAN_GBOT_VOICE_LANGUAGE` 默认是 `zh`，需要时可在 `gateway/.env` 设为 `en` 或 `auto`。其他高级选项见[网关说明](gateway/README.zh-CN.md#grok-bot-登录态语音macos)。
+
+启动网关后，在启动日志里确认有 `voice_backend=gbot`，再从另一个终端检查登录桥：
+
+```sh
+curl http://127.0.0.1:18771/health
+```
+
+登录桥运行时会返回 `"ok": true`。这两项只确认后端选择和登录桥配置，不证明登录有效或语音已通。真正的确认是对机器人说 "Hi Grok"，听到回应。
+
+要切回 Gemini，把 `STACKCHAN_VOICE_BACKEND` 改成 `gemini`（或删掉这一行），保留有效的 `GEMINI_API_KEY`，再重启网关。若网关由其他方式启动、环境里另外注入了 `gbot`，要在那里一起改。独立运行的登录桥不会自动退出，不用时在它的终端里结束。
+
+Grok 语音启动失败时，网关不会自动回退到 Gemini，机器人可能显示在线但没有语音，日志里有 `Grok voice startup failed`，这时按上一段切回 Gemini。
+
+
+## 其他语音后端
 
 每种用法都在前一种的基础上增加，先从用法 1 开始。
 
 | | 能做什么 | 需要什么 |
 |---|---|---|
 | **1. 只刷固件**（先走这条） | 用你自己的密钥，通过 OpenAI Realtime 或 Google Gemini Live 和机器人语音对话 | 机器人、USB-C 线、桌面版 Chrome 或 Edge、一把 OpenAI 或 Gemini API 密钥 |
-| **2. 加网关** | 「Hi Grok」唤醒词，语音经电脑走 Gemini Live；在带摄像头的 Mac 上，头会跟着你的脸转；Claude 等 MCP 客户端能让机器人说话、读取它的状态 | 用法 1 的全部，加一台和机器人在同一 Wi-Fi、运行 [gateway/](gateway/README.zh-CN.md) 的电脑，以及一把 Gemini API 密钥 |
-| **3. 再加 Grok Bot** | 说「帮我查一下」「帮我调研 X」，机器人把任务交给你在 Grok Bot 应用里的智能体，智能体每回一段就念一段 | 用法 2 的全部，加上在那台电脑上登录的 Grok Bot 应用和 `gbot` 命令行 |
+| **2. 固件加网关** | 电脑处理语音与「Hi Grok」唤醒词，可选 Gemini Live 或 Grok 登录态语音；Mac 摄像头人脸跟随与 MCP | 已有固件、同一 Wi-Fi 的电脑，以及所选后端的配置；见 [gateway/](gateway/README.zh-CN.md) |
+| **3. 再加 Grok Bot** | 将任务交给桌面智能体并接收完成通知 | 同机登录 Grok Bot；Grok 语音走原生通道，Gemini 可选 CLI 转发 |
 
 各部分怎么通信（端口、协议、消息流程、每部分需要什么）：[架构与通信说明](docs/architecture.zh-CN.md)。
 
-```
- 机器人 ──（用法 1）wss──▶ OpenAI Realtime / Gemini Live
-   │
-   └──（用法 2）ws://<局域网 IP>:8765──▶ 网关 ──▶ Gemini Live
-                                          │  ▲
-                          Claude ──MCP────┘  │（用法 3）HTTP 127.0.0.1:18770
-                                             ▼
-                                   转发服务 ──gbot 命令行──▶ Grok Bot 应用
+```text
+机器人 → Gateway → Gemini Live (default) / Grok login voice
+Claude / MCP → Gateway
+Grok voice → localhost:18771 login helper → native Grok Bot
+Gemini ask_grokbot → optional localhost:18770 → gbot CLI → Grok Bot
 ```
 
 ### 用法 1：只刷固件
@@ -44,10 +109,10 @@ Groki Bot 桌面机器人（M5Stack CoreS3 加 Stack-chan 底座）的全部内�
 
 ### 用法 2：固件加网关
 
-想让机器人的语音经过电脑处理时走这条，例如使用带唤醒词的 Gemini Live，或者让 Claude 连接机器人。
+想让机器人的语音经过电脑处理时走这条，例如使用带唤醒词的 Gemini Live 或 Grok 登录态语音，或者让 Claude 连接机器人。
 
 1. 先完成用法 1 的第 1、2 步（可以不填 API 密钥）。
-2. 在和机器人同一个 Wi-Fi 的电脑上，按 [gateway/README.zh-CN.md](gateway/README.zh-CN.md) 安装并启动网关：`git clone` 本仓库，`cd groki-bot/gateway`，`uv sync --all-extras`，把 Gemini API 密钥写进 `.env`，再用 Claude Code 启动（`claude mcp add groki -- uv run --directory "$(pwd)" stackchan-mcp`）或作为后台服务运行。
+2. 在和机器人同一个 Wi-Fi 的电脑上，按 [gateway/README.zh-CN.md](gateway/README.zh-CN.md) 安装并启动网关：`git clone` 本仓库，`cd groki-bot/gateway`，`uv sync --all-extras`，在 `.env` 选择默认 Gemini（填 API 密钥）或 Grok 登录态后端（见下节），再用 Claude Code 启动（`claude mcp add groki -- uv run --all-extras --directory "$(pwd)" stackchan-mcp`）或作为后台服务运行。
 3. 在蓝牙设置页的「对话」标签页：
    - 对话服务商：选「XiaoZhi 服务器」。
    - 「XiaoZhi 服务器 URL」：填 `ws://<电脑的局域网 IP>:8765`，例如 `ws://192.168.1.20:8765`。
@@ -55,19 +120,19 @@ Groki Bot 桌面机器人（M5Stack CoreS3 加 Stack-chan 底座）的全部内�
    - 点「保存并重启」。
 4. 在电脑上打开 <http://127.0.0.1:8766/debug/status>，看到 `"device": {"connected": true}` 后说「Hi Grok」。想改用「Hey Groki」做唤醒词，在 `gateway/.env` 里设 `STACKCHAN_WAKE_PHRASE=hey groki`，再重启网关。
 
-用法 2 配合本固件能做什么、不能做什么：网关负责语音对话；在带摄像头的 Mac 上，网关还会让机器人转头跟着你的脸（见[人脸追踪](gateway/README.zh-CN.md#人脸追踪)）。Claude 通过网关的 MCP 工具控制头部、灯和摄像头**到不了**本固件，因为本固件的 XiaoZhi 客户端在握手消息里声明 `features.mcp=false`（[components/conversation/xiaozhi_client.cpp](components/conversation/xiaozhi_client.cpp)），也不处理服务器发来的 MCP 请求。人脸追踪改用 XiaoZhi 的 `head` 消息转头，固件能处理这条消息。Gemini 自己的头部、表情、灯光工具（默认关闭，设 `STACKCHAN_GEMINI_DEVICE_TOOLS=1` 打开）也走这条路：`move_head` 以 `head` 消息发送（需要 v0.2.1 之后的固件），表情以表情消息发送，灯光颜色以 `led` 消息发送。摄像头类工具在本固件上不能用。
+用法 2 配合本固件能做什么、不能做什么：网关负责语音对话；在带摄像头的 Mac 上，网关还会让机器人转头跟着你的脸（见[人脸追踪](gateway/README.zh-CN.md#人脸追踪)）。Claude 通过网关的 MCP 工具控制头部、灯和摄像头**到不了**本固件，因为本固件的 XiaoZhi 客户端在握手消息里声明 `features.mcp=false`（[components/conversation/xiaozhi_client.cpp](components/conversation/xiaozhi_client.cpp)），也不处理服务器发来的 MCP 请求。人脸追踪改用 XiaoZhi 的 `head` 消息转头，固件能处理这条消息。两个网关语音后端共用的头部、表情、灯光工具（默认关闭，设 `STACKCHAN_GEMINI_DEVICE_TOOLS=1` 打开）也走这条路：`move_head` 以 `head` 消息发送（需要 v0.2.1 之后的固件），表情以表情消息发送，灯光颜色以 `led` 消息发送。摄像头类工具在本固件上不能用。
 
 ### 用法 3：再加 Grok Bot
 
-已经在用 Grok Bot 桌面应用、想让机器人把真正的活交给你的某个智能体时走这条。闲聊仍由 Gemini 回答，办事的任务交给智能体，机器人把智能体的回复陆续念出来。
+Grok 登录态语音直接使用原生桌面通道，按下节配置即可，不需要 `gbot` 命令行。如果继续使用 Gemini，仍可通过 `ask_grokbot` 和可选 CLI 转发服务交给桌面智能体处理，见[Gemini 联动配置](gateway/README.zh-CN.md#可选把任务交给-grok-bot)。
 
-1. 先把用法 2 跑通。
-2. 在同一台电脑上登录 Grok Bot 应用，安装 `gbot` 命令行（`npm install --global grok-bot-cli`，需要较新的 Node.js，见 [grok-bot-cli](https://github.com/ScriptedAlchemy/grok-bot-cli)），用 `gbot bots list` 检查。
-3. 在 `gateway/.env` 里把 `STACKCHAN_TOOL_BOT` 设为智能体的名字（例如 `STACKCHAN_TOOL_BOT=助手`）。不设置就不会开启。
-4. 在网关旁边启动转发服务：`cd gateway && uv run stackchan-gbot-proxy`（只监听 `127.0.0.1:18770`），然后重启网关。
-5. 说「Hi Grok，帮我查一下明天的天气」。机器人会先说「已经发给助手啦」，再念智能体的回复。
+### 使用 Grok Bot 登录态语音
 
-详细说明和排查：[网关 README：把任务交给 Grok Bot](gateway/README.zh-CN.md#可选把任务交给-grok-bot)、[架构与通信说明第 4 节](docs/architecture.zh-CN.md#4-把任务交给-grok-bot)。
+网关新增了 `STACKCHAN_VOICE_BACKEND=gbot`：可在 macOS 上直接复用已登录的 Grok Bot 桌面应用，无需另配 xAI 语音 API 密钥。默认后端仍是 Gemini，设回 `STACKCHAN_VOICE_BACKEND=gemini` 即可恢复。切换网关后端不需要重新刷固件。
+
+Grok 语音直接使用原生 `send_task`、`search_conversations` 与 `end_the_call`，并复用本地硬件与可选的 Mac 工具，不需要 `gbot` 命令行。CLI 转发服务保留作为 Gemini 的可选联动路径。安装步骤见[网关说明](gateway/README.zh-CN.md#grok-bot-登录态语音macos)。
+
+现场测试已观察到任务受理、完成结果送入语音模型及生成输出音频，实体扬声器播报的具体念词已确认正常（2026-10-18）。桌面文字订阅仍可能报错，会自动独立重连；断开期间遗漏的消息不会补发。CoreS3 固件在发声时可能停止麦克风采集，因此目前尚未验证纯声学打断。详见[验证范围](gateway/GBOT_VOICE_VALIDATION.md)。
 
 ### 让 Claude Code 直接改表情
 
@@ -92,7 +157,7 @@ Grok 脸编在固件里，刷完固件就能显示，不需要另外写入资源
 | 目录 | 内容 |
 |---|---|
 | `main/`、`components/`、`assets/` | 机器人固件（ESP-IDF，C++20） |
-| [gateway/](gateway/README.zh-CN.md) | 运行在电脑上的网关（Python）：Gemini Live 语音、唤醒词、MCP 服务、Grok Bot 转发服务 |
+| [gateway/](gateway/README.zh-CN.md) | 运行在电脑上的网关（Python）：Gemini / Grok 登录态语音、唤醒词、MCP 与原生桌面通道 |
 | [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md) | 固件、网关和 Grok Bot 之间怎么通信 |
 | `docs/` | 刷机页、许可页等文档，发布到 GitHub Pages |
 | [tools/vision-tracker/](tools/vision-tracker/README.md) | Mac 端人脸追踪程序（Swift，Apple Vision），人脸追踪时由网关启动 |

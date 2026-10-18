@@ -26,7 +26,7 @@ uv sync --all-extras
 NO_PROXY="*" uv run pytest -q
 ```
 
-Never let the gateway take the robot's serial port in tests or local runs: set `STACKCHAN_USB_DISABLE=1` and leave `STACKCHAN_USB_TRANSPORT` unset. New gateway files use `SPDX-License-Identifier: MIT`. Optional features (Mac control, device tools, Grok Bot hand-off via `STACKCHAN_TOOL_BOT`) stay off by default. Run the gateway with stdin kept open (the stdio MCP server exits on EOF). Keep `STACKCHAN_MANUAL_VAD` off (the default): this firmware never sends `listen stop`. Bring-up notes and a troubleshooting table: `STACKCHAN_GROK_BOT_DIAGNOSIS.md`, `gateway/README.md`. How the parts talk to each other: `docs/architecture.md`.
+Never let the gateway take the robot's serial port in tests or local runs: set `STACKCHAN_USB_DISABLE=1` and leave `STACKCHAN_USB_TRANSPORT` unset. New gateway files use `SPDX-License-Identifier: MIT`. Optional features (Mac control, device tools, Grok Bot hand-off via `STACKCHAN_TOOL_BOT`) stay off by default. Run the gateway with stdin kept open (the stdio MCP server exits on EOF). Set `STACKCHAN_MANUAL_VAD=0` in `gateway/.env`: the default (manual VAD) waits for `listen stop`, which this firmware never sends. Bring-up notes and a troubleshooting table: `STACKCHAN_GROK_BOT_DIAGNOSIS.md`, `gateway/README.md`. How the parts talk to each other: `docs/architecture.md`.
 
 ## License headers
 
